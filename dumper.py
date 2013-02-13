@@ -24,11 +24,24 @@ def get_functions(function):
             function_list.append(function_dump)
     return function_list
 
+def filter_instructions(function, filters):
+    filtered = []
+    filtered.append(function[0])
+    function = function[1:]
+    for function_line in function:
+        if not function_line.strip():
+            continue
+        function_line_split = function_line.split('\t')
+        instruction = function_line_split[2]
+        if instruction in filters:
+            filtered.append(function_line)
+    return filtered
+
 output = {}
 output['classes'] = {
             "biome.superclass": "NA",
             "block.superclass": "NA",
-            "entity.list": "NA",
+            "entity.list": "EntityFactory::CreateEntity",
             "item.superclass": "NA",
             "nethandler.client": "NA",
             "nethandler.server": "NA",
@@ -39,7 +52,6 @@ output['classes'] = {
 ##Packets
 
 #Get packet side
-#SideNetworkHandler::handle
 side = {}
 for function in functions:
     if "ServerSideNetworkHandler::handle" in function:
@@ -73,7 +85,6 @@ for packet_function in packet_functions:
         instruction = function_line_split[2]
         if instruction == 'movs' and packet_id == None:
             packet_id_int = int(function_line.split('#')[1])
-            packet_id = hex(packet_id_int)
             output['packets']['packet'][packet_id_int] = {}
             packet = output['packets']['packet'][packet_id_int]
             packet['class'] = packet_name.split('::')[0][1:]
@@ -93,8 +104,8 @@ for packet_function in packet_functions:
             packet['instructions'] = []
 
         elif instruction == "bl" and not "<operator new(unsigned int)>" in function_line:
-            packet_instruction = "\t" + function_line_split[3].split(' ', 1)[1]
-            packet_field = packet_instruction.split('(')[0].split('::')[-1]
+            packet_call = function_line_split[3].split(' ', 1)[1]
+            packet_field = packet_call.split('(')[0].split('::')[-1]
 
             #More need to be implemented
             if packet_field == "Write<short>":
@@ -120,6 +131,36 @@ for packet_function in packet_functions:
 output['packets']['info'] = {}
 output['packets']['info']['count'] = len(output['packets']['packet'])
 
+##Entitys
+
+output['entities'] = {}
+output['entities']['entity'] = {}
+
+entity_function = get_functions("EntityFactory::CreateEntity")[0]
+entity_function = filter_instructions(entity_function, ['bl'])[1:]
+for function_line in entity_function:
+    function_line_split = function_line.split('\t')
+    if not "operator" in function_line and not "Throwable" in function_line:
+        entity_call = function_line_split[3].split(' ', 1)[1][1:-1]
+        #Entity Name
+        entity_name = entity_call.split('::')[0]
+        #Entity ID
+        id_function = get_functions(entity_name + "::getEntityTypeId")[0]
+        id_function = filter_instructions(id_function, ['movs'])[1:]
+        for id_function_line in id_function:
+            entity_id_int = int(id_function_line.split('#')[1])
+            break
+        output['entities']['entity'][entity_id_int] = {}
+        entity = output['entities']['entity'][entity_id_int]
+        #Entity Name
+        entity['name'] = entity_name
+        entity['class'] = entity_call
+        entity['id'] = entity_id_int
+        #Entity type
+        type_function = get_functions(entity_call)[0]
+        type_function = filter_instructions(type_function, ['bl'])[1:]
+        for type_function_line in type_function:
+            type_function_split = type_function_line.split('\t')[-1].split(' ')[-1][1:-1]
 
 output['source'] = {
             "classes": len(functions),
